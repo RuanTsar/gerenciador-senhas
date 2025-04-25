@@ -36,11 +36,12 @@ def create_app():
             host=app.config['POSTGRES_HOST'],
             port=app.config['POSTGRES_PORT']
         )
+
     app.get_db = get_db
 
     # Initialize DB and load key
     with app.app_context():
-        init_db(app)
+        init_db(app.get_db)
         app.key = load_key()
 
     # Login decorator
