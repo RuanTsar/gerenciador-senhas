@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: gerenciador-senhas
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: gunicorn app:app
+    envVars:
+      - key: POSTGRES_USER
+        value: user
+      - key: POSTGRES_PASSWORD
+        value: password
+      - key: POSTGRES_DB
+        value: password_manager
