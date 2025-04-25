@@ -1,228 +1,212 @@
-from db import init_db as db_init  # para não conflitar
-from flask import Flask, request, render_template, redirect, url_for, session
-from werkzeug.security import generate_password_hash, check_password_hash
-from auth import verify_password, hash_password
-from db import save_password, delete_password, update_password, get_db_connection
+from flask import Flask, request, render_template, redirect, url_for, session, flash, current_app
+from config import Config
+from models import init_db, save_password, delete_password, update_password, get_user_passwords, log_audit
+from security import init_limiter, validate_password_strength, hash_password, verify_password, generate_secure_password
 from crypto import load_key, encrypt_password, decrypt_password
+from functools import wraps
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 
-os.environ["POSTGRES_DB"] = "gerenciador"
-os.environ["POSTGRES_USER"] = "usuario"
-os.environ["POSTGRES_PASSWORD"] = "senha123"
-
-
-db_init()  # esse é o init que você quer executar de verdade
-# Inicializa o banco de dados (cria as tabelas)
-
-
+# Initialize Flask app
 app = Flask(__name__)
-app.secret_key = "chave_super_secreta"
+app.config.from_object(Config)
 
+# Initialize logging
+if not app.debug:
+    if not os.path.exists('logs'):
+        os.mkdir('logs')
+    file_handler = RotatingFileHandler('logs/password_manager.log',
+                                     maxBytes=10240, backupCount=10)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s '
+        '[in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('Password Manager startup')
+
+# Initialize rate limiter
+limiter = init_limiter(app)
+
+# Initialize database
+init_db()
+
+# Load encryption key
 key = load_key()
-@app.route("/")
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('user_id'):
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/')
 def home():
-    return redirect(url_for("login"))
+    return redirect(url_for('login'))
 
-# ====================
-# ROTA: Salvar nova senha
-# ====================
-@app.route("/save", methods=["POST"])
-def save():
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-
-    service = request.form["service"]
-    username = request.form["username"]
-    password = request.form["password"]
-    encrypted = encrypt_password(password, key)
-
-    save_password(service, username, encrypted, session["user_id"])
-    return redirect(url_for("dashboard"))
-
-# ====================
-# ROTA: Sessão e Acesso Individual
-# ====================
-@app.route('/dashboard')
-def dashboard():
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-
-    user_id = session["user_id"]
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    # Busca as senhas do usuário logado
-    cur.execute("SELECT id, service, username, password FROM passwords WHERE user_id = %s", (user_id,))
-    registros = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    # Descriptografa as senhas
-    senhas = [
-        {
-            "id": id,
-            "service": service,
-            "username": username,
-            "password": decrypt_password(encrypted_password, key)
-        }
-        for id, service, username, encrypted_password in registros
-    ]
-
-    return render_template("dashboard.html", senhas=senhas)
-
-
-
-
-# ====================
-# ROTA: Deletar senha
-# ====================
-@app.route('/delete/<int:id>', methods=["POST"])
-def delete(id):
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-
-    delete_password(id, session["user_id"])
-    return redirect(url_for('dashboard'))
-
-# ====================
-# ROTA: Editar senha
-# ====================
-@app.route('/edit/<int:id>', methods=['GET', 'POST'])
-def edit(id):
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if request.method == 'POST':
-        service = request.form['service']
-        username = request.form['username']
-        password = request.form['password']
-        encrypted = encrypt_password(password, key)
-
-        update_password(id, service, username, encrypted, session["user_id"])
-        return redirect(url_for('dashboard'))
-
-    cursor.execute('SELECT service, username, password FROM passwords WHERE id = %s AND user_id = %s', (id, session["user_id"]))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return "Entrada não encontrada", 404
-
-    service, username, encrypted_password = row
-    decrypted = decrypt_password(encrypted_password, key)
-
-    return render_template('edit.html', service=service, username=username, password=decrypted, id=id)
-
-# ====================
-# ROTA: Login de usuários
-# ====================
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        print("Tentativa de login:")
-        print("Usuário digitado:", username)
-        print("Senha digitada:", password)
+        
+        with app.app_context():
+            conn = current_app.config['db_connection']
+            cur = conn.cursor()
+            cur.execute("SELECT id, hashed_password FROM users WHERE username = %s", (username,))
+            user = cur.fetchone()
+            cur.close()
 
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, hashed_password FROM users WHERE username = %s", (username,))
-        user = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        print("Resultado da query:", user)
-
-        if user:
-            user_id, hashed_password = user
-            print("Hash no banco:", hashed_password)
-
-            senha_ok = check_password_hash(hashed_password, password)
-            print("Senha confere?", senha_ok)
-
-            if senha_ok:
-                session['user_id'] = user_id
-                print("Login bem-sucedido. Redirecionando para dashboard.")
-                return redirect(url_for("dashboard"))
-            else:
-                print("Senha incorreta.")
-        else:
-            print("Usuário não encontrado.")
-
-        return render_template("login.html", erro="Credenciais inválidas.")
-
+            if user and verify_password(user[1], password):
+                session['user_id'] = user[0]
+                log_audit(user[0], 'login', 'Successful login', request.remote_addr)
+                flash('Login successful!', 'success')
+                return redirect(url_for('dashboard'))
+            
+            log_audit(None, 'login_failed', f'Failed login attempt for username: {username}', request.remote_addr)
+            flash('Invalid username or password', 'danger')
+    
     return render_template('login.html')
 
-
-# ====================
-# ROTA: Logout
-# ====================
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-# ====================
-# ROTA: Alterar senha mestra
-# ====================
-@app.route("/change_master_password", methods=["GET", "POST"])
-def change_master_password():
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-
-    if request.method == "POST":
-        senha_atual = request.form["senha_atual"]
-        nova_senha = request.form["nova_senha"]
-
-        with open(".master_pwd") as f:
-            hash_salvo = f.read()
-
-        if verify_password(hash_salvo, senha_atual):
-            with open(".master_pwd", "w") as f:
-                f.write(hash_password(nova_senha))
-            return redirect(url_for("dashboard"))
-        else:
-            return render_template("change_master_password.html", erro="Senha atual incorreta.")
-    
-    return render_template("change_master_password.html")
-
-# ====================
-# ROTA: Registro de novo usuário
-# ====================
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("3 per minute")
 def register():
     if request.method == 'POST':
         username = request.form['username']
         email = request.form['email']
         password = request.form['password']
-        hashed_password = generate_password_hash(password)
-
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        try:
-            cur.execute("""
-                INSERT INTO users (username, email, hashed_password)
-                VALUES (%s, %s, %s)
-            """, (username, email, hashed_password))
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            return f"Erro ao registrar usuário: {str(e)}", 400
-
-        cur.close()
-        conn.close()
-        return redirect('/login')
-
+        
+        # Validate password strength
+        is_valid, message = validate_password_strength(password)
+        if not is_valid:
+            flash(message, 'danger')
+            return render_template('register.html')
+        
+        hashed_password = hash_password(password)
+        
+        with app.app_context():
+            conn = current_app.config['db_connection']
+            cur = conn.cursor()
+            try:
+                cur.execute("""
+                    INSERT INTO users (username, email, hashed_password)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (username, email, hashed_password))
+                user_id = cur.fetchone()[0]
+                conn.commit()
+                
+                log_audit(user_id, 'register', 'New user registration', request.remote_addr)
+                flash('Registration successful! Please log in.', 'success')
+                return redirect(url_for('login'))
+            except Exception as e:
+                conn.rollback()
+                flash(f'Error during registration: {str(e)}', 'danger')
+            finally:
+                cur.close()
+    
     return render_template('register.html')
 
-# ====================
-# Início da aplicação
-# ====================
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True)
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    user_id = session['user_id']
+    passwords = get_user_passwords(user_id)
+    
+    # Decrypt passwords for display
+    decrypted_passwords = []
+    for pwd in passwords:
+        decrypted = {
+            'id': pwd['id'],
+            'service': pwd['service'],
+            'username': pwd['username'],
+            'password': decrypt_password(pwd['password'], key)
+        }
+        decrypted_passwords.append(decrypted)
+    
+    return render_template('dashboard.html', passwords=decrypted_passwords)
+
+@app.route('/save', methods=['POST'])
+@login_required
+def save():
+    service = request.form['service']
+    username = request.form['username']
+    password = request.form['password']
+    
+    # Validate password strength
+    is_valid, message = validate_password_strength(password)
+    if not is_valid:
+        flash(message, 'danger')
+        return redirect(url_for('dashboard'))
+    
+    encrypted = encrypt_password(password, key)
+    save_password(service, username, encrypted, session['user_id'])
+    
+    log_audit(session['user_id'], 'save_password', f'Saved password for service: {service}', request.remote_addr)
+    flash('Password saved successfully!', 'success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/delete/<int:id>', methods=['POST'])
+@login_required
+def delete(id):
+    delete_password(id, session['user_id'])
+    log_audit(session['user_id'], 'delete_password', f'Deleted password with ID: {id}', request.remote_addr)
+    flash('Password deleted successfully!', 'success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit(id):
+    if request.method == 'POST':
+        service = request.form['service']
+        username = request.form['username']
+        password = request.form['password']
+        
+        # Validate password strength
+        is_valid, message = validate_password_strength(password)
+        if not is_valid:
+            flash(message, 'danger')
+            return redirect(url_for('edit', id=id))
+        
+        encrypted = encrypt_password(password, key)
+        update_password(id, service, username, encrypted, session['user_id'])
+        
+        log_audit(session['user_id'], 'update_password', f'Updated password for service: {service}', request.remote_addr)
+        flash('Password updated successfully!', 'success')
+        return redirect(url_for('dashboard'))
+    
+    password = get_password(id, session['user_id'])
+    if not password:
+        flash('Password not found', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    decrypted = {
+        'id': password['id'],
+        'service': password['service'],
+        'username': password['username'],
+        'password': decrypt_password(password['password'], key)
+    }
+    
+    return render_template('edit.html', password=decrypted)
+
+@app.route('/generate-password')
+@login_required
+def generate_password():
+    return {'password': generate_secure_password()}
+
+@app.route('/logout')
+def logout():
+    if 'user_id' in session:
+        log_audit(session['user_id'], 'logout', 'User logged out', request.remote_addr)
+    session.clear()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", debug=app.config['DEBUG'])

@@ -2,13 +2,24 @@ services:
   - type: web
     name: gerenciador-senhas
     env: python
-    plan: free
-    buildCommand: ""
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
-      - key: POSTGRES_USER
-        value: user
-      - key: POSTGRES_PASSWORD
-        value: password
+      - key: PYTHON_VERSION
+        value: 3.9.0
       - key: POSTGRES_DB
-        value: password_manager
+        value: gerenciador
+      - key: POSTGRES_USER
+        value: usuario
+      - key: POSTGRES_PASSWORD
+        value: senha123
+      - key: POSTGRES_HOST
+        value: localhost
+      - key: POSTGRES_PORT
+        value: 5432
+      - key: SECRET_KEY
+        value: your-secret-key-here
+      - key: DEBUG
+        value: False
+      - key: SESSION_COOKIE_SECURE
+        value: True
