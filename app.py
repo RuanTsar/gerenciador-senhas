@@ -17,7 +17,11 @@ db_init()  # esse é o init que você quer executar de verdade
 
 app = Flask(__name__)
 app.secret_key = "chave_super_secreta"
+
 key = load_key()
+@app.route("/")
+def home():
+    return redirect(url_for("login"))
 
 # ====================
 # ROTA: Salvar nova senha
