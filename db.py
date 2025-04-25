@@ -2,13 +2,18 @@ import psycopg2
 import os
 from contextlib import closing
 
+import os
+import psycopg2
+
 def get_db_connection():
     return psycopg2.connect(
-        host="db",
-        database=os.getenv("POSTGRES_DB"),
-        user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD")
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT", 5432)
     )
+
 
 def init_db():
     with closing(get_db_connection()) as conn:
