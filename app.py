@@ -224,7 +224,10 @@ def create_app():
 
     return app
 
+# Create the application instance
 app = create_app()
 
+# Ensure the application context is available when running with Gunicorn
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", debug=app.config['DEBUG'])
+    with app.app_context():
+        app.run(host="0.0.0.0", debug=app.config['DEBUG'])
