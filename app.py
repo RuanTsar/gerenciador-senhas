@@ -40,7 +40,7 @@ def create_app():
 
     # Initialize database and load key within application context
     with app.app_context():
-        init_db(app)
+        init_db()
         app.key = load_key()
 
     # Login decorator
