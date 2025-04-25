@@ -1,5 +1,5 @@
-# Usa imagem base leve com Python 3.9
-FROM python:3.9-slim
+# Usa imagem base leve com Python 3.11
+FROM python:3.11-slim
 
 # Variáveis de ambiente
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -20,8 +20,8 @@ WORKDIR /app
 # Copia arquivos necessários antes da instalação
 COPY requirements.txt .
 
-# Instala pacotes Python usando mirror alternativo (USTC)
-RUN pip install --no-cache-dir -i https://pypi.mirrors.ustc.edu.cn/simple -r requirements.txt
+# Instala pacotes Python
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia todo o restante da aplicação
 COPY . .
