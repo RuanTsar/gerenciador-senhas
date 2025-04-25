@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Senhas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+</head>
+<body class="bg-dark text-light">
+
+<!-- Barra de navegação -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-black mb-4 shadow">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="#">🔐 Minhas Senhas</a>
+        <div class="d-flex align-items-center gap-2">
+            <a href="{{ url_for('change_master_password') }}" class="btn btn-outline-warning">
+                <i class="bi bi-gear"></i> Alterar Senha Mestra
+            </a>
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-light">
+                <i class="bi bi-box-arrow-right"></i> Logout
+            </a>
+            <!-- Botão de alternância de tema -->
+            <button id="toggle-theme" class="btn btn-outline-secondary" title="Alternar tema">
+                <i class="bi bi-sun-fill" id="theme-icon"></i>
+            </button>
+        </div>
+    </div>
+</nav>
+
+
+    <!-- Conteúdo principal -->
+    <div class="container">
+        <h2 class="mb-4">➕ Adicionar Nova Senha</h2>
+        
+        <!-- Formulário de adição de senha -->
+        <form action="{{ url_for('save') }}" method="post" class="mb-5">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <input type="text" name="service" class="form-control" placeholder="Serviço" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="text" name="username" class="form-control" placeholder="Usuário" required>
+                </div>
+                <div class="col-md-4 d-flex">
+                    <input type="password" name="password" id="generated-password" class="form-control me-2" placeholder="Senha" required>
+                    <button type="button" class="btn btn-success" onclick="generatePassword()" title="Gerar Senha Aleatória">
+                        <i class="bi bi-shuffle"></i>
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-save"></i> Salvar
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <h2 class="mb-3">📋 Senhas Salvas</h2>
+
+        <!-- Tabela de senhas -->
+        <div class="table-responsive">
+            <table class="table table-dark table-striped align-middle">
+                <thead class="table-light text-dark">
+                    <tr>
+                        <th>Serviço</th>
+                        <th>Usuário</th>
+                        <th>Senha</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in senhas %}
+                    <tr>
+                        <td>{{ item.service }}</td>
+                        <td>{{ item.username }}</td>
+                        <td>
+                            <span id="pwd-{{ item.id }}" class="password-text">•••••••</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="togglePassword({{ item.id }}, '{{ item.password }}')" title="Mostrar/Ocultar Senha">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </td>
+                        <td class="d-flex gap-1">
+                            <a href="{{ url_for('edit', id=item.id) }}" class="btn btn-sm btn-warning" title="Editar">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form action="{{ url_for('delete', id=item.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja excluir?');">
+                                <button type="submit" class="btn btn-sm btn-danger" title="Excluir">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">Nenhuma senha cadastrada ainda.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Rodapé -->
+    <footer class="text-center mt-5 text-secondary">
+        <p>&copy; {{ 2025 }} - Gerenciador de Senhas Seguras</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        // Função para mostrar/ocultar a senha
+        function togglePassword(id, realPassword) {
+            const el = document.getElementById('pwd-' + id);
+            if (el.innerText === '•••••••') {
+                el.innerText = realPassword;
+            } else {
+                el.innerText = '•••••••';
+            }
+        }
+
+        // Função para gerar uma senha aleatória
+        function generatePassword(length = 12) {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*";
+            let pwd = "";
+            for (let i = 0; i < length; i++) {
+                pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            const input = document.getElementById("generated-password");
+            input.value = pwd;
+        }
+    </script>
+    <script>
+        const toggleBtn = document.getElementById("toggle-theme");
+        const themeIcon = document.getElementById("theme-icon");
+    
+        function applyTheme(theme) {
+            if (theme === "light") {
+                document.body.classList.remove("bg-dark", "text-light");
+                document.body.classList.add("bg-light", "text-dark");
+                themeIcon.classList.remove("bi-sun-fill");
+                themeIcon.classList.add("bi-moon-fill");
+            } else {
+                document.body.classList.remove("bg-light", "text-dark");
+                document.body.classList.add("bg-dark", "text-light");
+                themeIcon.classList.remove("bi-moon-fill");
+                themeIcon.classList.add("bi-sun-fill");
+            }
+        }
+    
+        // Aplica tema salvo
+        const savedTheme = localStorage.getItem("theme") || "dark";
+        applyTheme(savedTheme);
+    
+        toggleBtn.addEventListener("click", () => {
+            const newTheme = document.body.classList.contains("bg-dark") ? "light" : "dark";
+            applyTheme(newTheme);
+            localStorage.setItem("theme", newTheme);
+        });
+    </script>
+    
+
+</body>
+</html>
