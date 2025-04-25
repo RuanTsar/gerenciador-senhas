@@ -215,4 +215,5 @@ app = create_app()
 
 # Apenas usado localmente
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", debug=app.config['DEBUG'])
+    with app.app_context():
+        app.run(host="0.0.0.0", debug=app.config['DEBUG'])
