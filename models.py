@@ -17,9 +17,9 @@ def get_db_connection():
         if conn:
             conn.close()
 
-def init_db(app: Flask):
+def init_db():
     """Initialize the database with required tables"""
-    with app.app_context():
+    try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 # Create users table
@@ -61,6 +61,9 @@ def init_db(app: Flask):
                 """)
                 
                 conn.commit()
+    except Exception as e:
+        current_app.logger.error(f"Failed to initialize database: {e}")
+        raise
 
 def save_password(service, username, encrypted_password, user_id):
     """Save a new password entry"""
