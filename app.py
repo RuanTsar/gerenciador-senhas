@@ -38,9 +38,9 @@ def create_app():
         )
     app.get_db = get_db
 
-    # Initialize database and load key within application context
+    # Initialize DB and load key
     with app.app_context():
-        init_db()
+        init_db(app)
         app.key = load_key()
 
     # Login decorator
@@ -210,10 +210,10 @@ def create_app():
     return app
 
 
-# Instância do app (usado pelo gunicorn)
+# Create the application instance
 app = create_app()
 
-# Apenas usado localmente
+# Only used locally
 if __name__ == '__main__':
     with app.app_context():
         app.run(host="0.0.0.0", debug=app.config['DEBUG'])
