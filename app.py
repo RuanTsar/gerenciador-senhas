@@ -7,6 +7,7 @@ from functools import wraps
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import psycopg2
 
 def create_app():
     app = Flask(__name__)
@@ -30,10 +31,22 @@ def create_app():
     # Initialize rate limiter
     limiter = init_limiter(app)
 
-    # Initialize database within application context
+    # Initialize database connection
+    def get_db():
+        return psycopg2.connect(
+            dbname=app.config['POSTGRES_DB'],
+            user=app.config['POSTGRES_USER'],
+            password=app.config['POSTGRES_PASSWORD'],
+            host=app.config['POSTGRES_HOST'],
+            port=app.config['POSTGRES_PORT']
+        )
+
+    # Store the database connection function in the app
+    app.get_db = get_db
+
+    # Initialize database and load key within application context
     with app.app_context():
         init_db()
-        # Load encryption key
         app.key = load_key()
 
     def login_required(f):
@@ -56,21 +69,22 @@ def create_app():
             username = request.form['username']
             password = request.form['password']
             
-            with app.app_context():
-                conn = current_app.config['db_connection']
-                cur = conn.cursor()
-                cur.execute("SELECT id, hashed_password FROM users WHERE username = %s", (username,))
-                user = cur.fetchone()
-                cur.close()
+            conn = app.get_db()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id, hashed_password FROM users WHERE username = %s", (username,))
+                    user = cur.fetchone()
 
-                if user and verify_password(user[1], password):
-                    session['user_id'] = user[0]
-                    log_audit(user[0], 'login', 'Successful login', request.remote_addr)
-                    flash('Login successful!', 'success')
-                    return redirect(url_for('dashboard'))
-                
-                log_audit(None, 'login_failed', f'Failed login attempt for username: {username}', request.remote_addr)
-                flash('Invalid username or password', 'danger')
+                    if user and verify_password(user[1], password):
+                        session['user_id'] = user[0]
+                        log_audit(user[0], 'login', 'Successful login', request.remote_addr)
+                        flash('Login successful!', 'success')
+                        return redirect(url_for('dashboard'))
+                    
+                    log_audit(None, 'login_failed', f'Failed login attempt for username: {username}', request.remote_addr)
+                    flash('Invalid username or password', 'danger')
+            finally:
+                conn.close()
         
         return render_template('login.html')
 
@@ -90,26 +104,26 @@ def create_app():
             
             hashed_password = hash_password(password)
             
-            with app.app_context():
-                conn = current_app.config['db_connection']
-                cur = conn.cursor()
-                try:
-                    cur.execute("""
-                        INSERT INTO users (username, email, hashed_password)
-                        VALUES (%s, %s, %s)
-                        RETURNING id
-                    """, (username, email, hashed_password))
-                    user_id = cur.fetchone()[0]
-                    conn.commit()
-                    
-                    log_audit(user_id, 'register', 'New user registration', request.remote_addr)
-                    flash('Registration successful! Please log in.', 'success')
-                    return redirect(url_for('login'))
-                except Exception as e:
-                    conn.rollback()
-                    flash(f'Error during registration: {str(e)}', 'danger')
-                finally:
-                    cur.close()
+            conn = app.get_db()
+            try:
+                with conn.cursor() as cur:
+                    try:
+                        cur.execute("""
+                            INSERT INTO users (username, email, hashed_password)
+                            VALUES (%s, %s, %s)
+                            RETURNING id
+                        """, (username, email, hashed_password))
+                        user_id = cur.fetchone()[0]
+                        conn.commit()
+                        
+                        log_audit(user_id, 'register', 'New user registration', request.remote_addr)
+                        flash('Registration successful! Please log in.', 'success')
+                        return redirect(url_for('login'))
+                    except Exception as e:
+                        conn.rollback()
+                        flash(f'Error during registration: {str(e)}', 'danger')
+            finally:
+                conn.close()
         
         return render_template('register.html')
 
@@ -126,7 +140,7 @@ def create_app():
                 'id': pwd['id'],
                 'service': pwd['service'],
                 'username': pwd['username'],
-                'password': decrypt_password(pwd['password'], current_app.key)
+                'password': decrypt_password(pwd['password'], app.key)
             }
             decrypted_passwords.append(decrypted)
         
@@ -145,7 +159,7 @@ def create_app():
             flash(message, 'danger')
             return redirect(url_for('dashboard'))
         
-        encrypted = encrypt_password(password, current_app.key)
+        encrypted = encrypt_password(password, app.key)
         save_password(service, username, encrypted, session['user_id'])
         
         log_audit(session['user_id'], 'save_password', f'Saved password for service: {service}', request.remote_addr)
@@ -174,7 +188,7 @@ def create_app():
                 flash(message, 'danger')
                 return redirect(url_for('edit', id=id))
             
-            encrypted = encrypt_password(password, current_app.key)
+            encrypted = encrypt_password(password, app.key)
             update_password(id, service, username, encrypted, session['user_id'])
             
             log_audit(session['user_id'], 'update_password', f'Updated password for service: {service}', request.remote_addr)
@@ -190,7 +204,7 @@ def create_app():
             'id': password['id'],
             'service': password['service'],
             'username': password['username'],
-            'password': decrypt_password(password['password'], current_app.key)
+            'password': decrypt_password(password['password'], app.key)
         }
         
         return render_template('edit.html', password=decrypted)

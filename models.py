@@ -8,13 +8,7 @@ def get_db_connection():
     """Get a database connection with proper error handling"""
     conn = None
     try:
-        conn = psycopg2.connect(
-            dbname=current_app.config['POSTGRES_DB'],
-            user=current_app.config['POSTGRES_USER'],
-            password=current_app.config['POSTGRES_PASSWORD'],
-            host=current_app.config['POSTGRES_HOST'],
-            port=current_app.config['POSTGRES_PORT']
-        )
+        conn = current_app.get_db()
         yield conn
     except psycopg2.Error as e:
         current_app.logger.error(f"Database error: {e}")
