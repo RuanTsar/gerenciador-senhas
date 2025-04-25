@@ -1,4 +1,4 @@
-from flask import current_app
+from flask import current_app, Flask
 import psycopg2
 from psycopg2.extras import DictCursor
 from contextlib import contextmanager
@@ -17,49 +17,50 @@ def get_db_connection():
         if conn:
             conn.close()
 
-def init_db():
+def init_db(app: Flask):
     """Initialize the database with required tables"""
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            # Create users table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username VARCHAR(50) UNIQUE NOT NULL,
-                    email VARCHAR(120) UNIQUE NOT NULL,
-                    hashed_password VARCHAR(255) NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP
-                )
-            """)
-            
-            # Create passwords table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS passwords (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    service VARCHAR(100) NOT NULL,
-                    username VARCHAR(100) NOT NULL,
-                    password TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    notes TEXT
-                )
-            """)
-            
-            # Create audit_log table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    action VARCHAR(50) NOT NULL,
-                    details TEXT,
-                    ip_address VARCHAR(45),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            conn.commit()
+    with app.app_context():
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Create users table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        email VARCHAR(120) UNIQUE NOT NULL,
+                        hashed_password VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_login TIMESTAMP
+                    )
+                """)
+                
+                # Create passwords table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS passwords (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                        service VARCHAR(100) NOT NULL,
+                        username VARCHAR(100) NOT NULL,
+                        password TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        notes TEXT
+                    )
+                """)
+                
+                # Create audit_log table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_log (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        action VARCHAR(50) NOT NULL,
+                        details TEXT,
+                        ip_address VARCHAR(45),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                conn.commit()
 
 def save_password(service, username, encrypted_password, user_id):
     """Save a new password entry"""

@@ -38,9 +38,9 @@ def create_app():
         )
     app.get_db = get_db
 
-    # Initialize DB and load key
+    # Initialize database and load key within application context
     with app.app_context():
-        init_db()
+        init_db(app)
         app.key = load_key()
 
     # Login decorator
