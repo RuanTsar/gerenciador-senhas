@@ -1,17 +1,15 @@
-from flask import current_app
 import psycopg2
 from psycopg2.extras import DictCursor
 from contextlib import contextmanager
 
 @contextmanager
-def get_db_connection():
+def get_db_connection(get_db_func):
     """Get a database connection with proper error handling"""
     conn = None
     try:
-        conn = current_app.get_db()
+        conn = get_db_func()
         yield conn
     except psycopg2.Error as e:
-        current_app.logger.error(f"Database error: {e}")
         raise
     finally:
         if conn:
@@ -62,14 +60,13 @@ def init_db(get_db_func):
             
             conn.commit()
     except Exception as e:
-        current_app.logger.error(f"Failed to initialize database: {e}")
         raise
     finally:
         conn.close()
 
-def save_password(service, username, encrypted_password, user_id):
+def save_password(service, username, encrypted_password, user_id, get_db_func):
     """Save a new password entry"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO passwords (service, username, password, user_id)
@@ -79,9 +76,9 @@ def save_password(service, username, encrypted_password, user_id):
             conn.commit()
             return cur.fetchone()[0]
 
-def get_password(password_id, user_id):
+def get_password(password_id, user_id, get_db_func):
     """Get a specific password entry"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute("""
                 SELECT * FROM passwords
@@ -89,9 +86,9 @@ def get_password(password_id, user_id):
             """, (password_id, user_id))
             return cur.fetchone()
 
-def update_password(password_id, service, username, encrypted_password, user_id):
+def update_password(password_id, service, username, encrypted_password, user_id, get_db_func):
     """Update an existing password entry"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE passwords
@@ -100,9 +97,9 @@ def update_password(password_id, service, username, encrypted_password, user_id)
             """, (service, username, encrypted_password, password_id, user_id))
             conn.commit()
 
-def delete_password(password_id, user_id):
+def delete_password(password_id, user_id, get_db_func):
     """Delete a password entry"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM passwords
@@ -110,9 +107,9 @@ def delete_password(password_id, user_id):
             """, (password_id, user_id))
             conn.commit()
 
-def get_user_passwords(user_id):
+def get_user_passwords(user_id, get_db_func):
     """Get all passwords for a user"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             cur.execute("""
                 SELECT * FROM passwords
@@ -121,9 +118,9 @@ def get_user_passwords(user_id):
             """, (user_id,))
             return cur.fetchall()
 
-def log_audit(user_id, action, details, ip_address):
+def log_audit(user_id, action, details, ip_address, get_db_func):
     """Log an audit event"""
-    with get_db_connection() as conn:
+    with get_db_connection(get_db_func) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO audit_log (user_id, action, details, ip_address)

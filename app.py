@@ -70,16 +70,18 @@ def create_app():
                 with conn.cursor() as cur:
                     cur.execute("SELECT id, hashed_password FROM users WHERE username = %s", (username,))
                     user = cur.fetchone()
+
                     if user and verify_password(user[1], password):
                         session['user_id'] = user[0]
-                        log_audit(user[0], 'login', 'Successful login', request.remote_addr)
+                        log_audit(user[0], 'login', 'Successful login', request.remote_addr, app.get_db)
                         flash('Login successful!', 'success')
                         return redirect(url_for('dashboard'))
-
-                    log_audit(None, 'login_failed', f'Failed login attempt for {username}', request.remote_addr)
+                    
+                    log_audit(None, 'login_failed', f'Failed login attempt for {username}', request.remote_addr, app.get_db)
                     flash('Invalid username or password', 'danger')
             finally:
                 conn.close()
+
         return render_template('login.html')
 
     @app.route('/register', methods=['GET', 'POST'])
@@ -89,14 +91,14 @@ def create_app():
             username = request.form['username']
             email = request.form['email']
             password = request.form['password']
-
+            
             is_valid, message = validate_password_strength(password)
             if not is_valid:
                 flash(message, 'danger')
                 return render_template('register.html')
-
+            
             hashed_password = hash_password(password)
-
+            
             conn = app.get_db()
             try:
                 with conn.cursor() as cur:
@@ -107,8 +109,8 @@ def create_app():
                         """, (username, email, hashed_password))
                         user_id = cur.fetchone()[0]
                         conn.commit()
-
-                        log_audit(user_id, 'register', 'New user registration', request.remote_addr)
+                        
+                        log_audit(user_id, 'register', 'New user registration', request.remote_addr, app.get_db)
                         flash('Registration successful! Please log in.', 'success')
                         return redirect(url_for('login'))
                     except Exception as e:
@@ -123,7 +125,8 @@ def create_app():
     @login_required
     def dashboard():
         user_id = session['user_id']
-        passwords = get_user_passwords(user_id)
+        passwords = get_user_passwords(user_id, app.get_db)
+        
         decrypted_passwords = [
             {
                 'id': pwd['id'],
@@ -133,6 +136,7 @@ def create_app():
             }
             for pwd in passwords
         ]
+        
         return render_template('dashboard.html', passwords=decrypted_passwords)
 
     @app.route('/save', methods=['POST'])
@@ -141,24 +145,24 @@ def create_app():
         service = request.form['service']
         username = request.form['username']
         password = request.form['password']
-
+        
         is_valid, message = validate_password_strength(password)
         if not is_valid:
             flash(message, 'danger')
             return redirect(url_for('dashboard'))
-
+        
         encrypted = encrypt_password(password, app.key)
-        save_password(service, username, encrypted, session['user_id'])
-
-        log_audit(session['user_id'], 'save_password', f'Saved password for {service}', request.remote_addr)
+        save_password(service, username, encrypted, session['user_id'], app.get_db)
+        
+        log_audit(session['user_id'], 'save_password', f'Saved password for {service}', request.remote_addr, app.get_db)
         flash('Password saved!', 'success')
         return redirect(url_for('dashboard'))
 
     @app.route('/delete/<int:id>', methods=['POST'])
     @login_required
     def delete(id):
-        delete_password(id, session['user_id'])
-        log_audit(session['user_id'], 'delete_password', f'Deleted password ID {id}', request.remote_addr)
+        delete_password(id, session['user_id'], app.get_db)
+        log_audit(session['user_id'], 'delete_password', f'Deleted password ID {id}', request.remote_addr, app.get_db)
         flash('Password deleted!', 'success')
         return redirect(url_for('dashboard'))
 
@@ -169,30 +173,31 @@ def create_app():
             service = request.form['service']
             username = request.form['username']
             password = request.form['password']
-
+            
             is_valid, message = validate_password_strength(password)
             if not is_valid:
                 flash(message, 'danger')
                 return redirect(url_for('edit', id=id))
-
+            
             encrypted = encrypt_password(password, app.key)
-            update_password(id, service, username, encrypted, session['user_id'])
-
-            log_audit(session['user_id'], 'update_password', f'Updated password for {service}', request.remote_addr)
+            update_password(id, service, username, encrypted, session['user_id'], app.get_db)
+            
+            log_audit(session['user_id'], 'update_password', f'Updated password for {service}', request.remote_addr, app.get_db)
             flash('Password updated!', 'success')
             return redirect(url_for('dashboard'))
-
-        password = get_password(id, session['user_id'])
+        
+        password = get_password(id, session['user_id'], app.get_db)
         if not password:
             flash('Password not found.', 'danger')
             return redirect(url_for('dashboard'))
-
+        
         decrypted = {
             'id': password['id'],
             'service': password['service'],
             'username': password['username'],
             'password': decrypt_password(password['password'], app.key)
         }
+        
         return render_template('edit.html', password=decrypted)
 
     @app.route('/generate-password')
